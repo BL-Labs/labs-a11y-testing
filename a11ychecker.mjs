@@ -104,9 +104,57 @@ async function processSitemap(url) {
   }
 }
 
-function calculateAverageScore(directory) {
-  console.log(directory);  
+function getReportTimeFromDirectoryPath(directory)
+{ 
+  let parts = path.basename(directory).split("T");
+  return parts[0] + "T" + parts[1].replace("-", ":") + "Z";
+}
 
+function extractPageData(data)
+{
+  let pageData = {"score":0, "audits": {}};
+  // Check if 'categories' and 'accessibility' exist
+  let pageUrl = new URL(data.requestedUrl);
+  pageData["path"] = pageUrl.pathname;
+  if ('categories' in data && 'accessibility' in data.categories) {
+    const scoreElement = data.categories.accessibility;
+                  
+    // If 'score' exists, add it to the total and increment count
+    if ('score' in scoreElement) {
+      pageData["score"] = parseFloat(scoreElement.score);
+    }
+  }
+  else 
+  {
+    console.log(`No valid structure found for ${filename}.`);
+  }
+  // extract individual warnings
+  for (var auditKey in data.audits)
+  {
+    if(isIncludableInReport(data.audits[auditKey]))
+    {
+       pageData["audits"][auditKey]= data.audits[auditKey];
+    }
+  }
+  return pageData;
+}
+
+function isIncludableInReport(auditData)
+{
+  return (auditData.scoreDisplayMode != "notApplicable" 
+    && (auditData.scoreDisplayMode == "binary" && auditData.score == 0) 
+    && auditData.scoreDisplayMode != "informative" 
+    && auditData.scoreDisplayMode != "manual");
+}
+
+// TODO LIST OUT SCORES PER PAGE UNDER GENERAL SCORE
+
+function generateReportData(url, directory) {
+  console.log(directory);  
+  let site_url = new URL(url);
+
+  let reportData = {"page_scores": {}, "page_audits": {}};
+  reportData["host"] = site_url.host;
 
 // Check if the directory exists
   if (!fs.existsSync(directory)) {
@@ -124,20 +172,11 @@ function calculateAverageScore(directory) {
         
           try {
               const filepath = path.join(directory, filename);
-              const data = JSON.parse(fs.readFileSync(filepath, 'utf8'));
-              
-              // Check if 'categories' and 'accessibility' exist
-              if ('categories' in data && 'accessibility' in data.categories) {
-                  const scoreElement = data.categories.accessibility;
-                  
-                  // If 'score' exists, add it to the total and increment count
-                  if ('score' in scoreElement) {
-                      totalScore += parseInt(scoreElement.score);
-                      count++;
-                  }
-              } else {
-                  console.log(`No valid structure found for ${filename}.`);
-              }
+              const pageData = extractPageData(JSON.parse(fs.readFileSync(filepath, 'utf8')));
+              count++;
+              totalScore += pageData["score"];
+              reportData["page_scores"][pageData["path"]] = pageData["score"];
+              reportData["page_audits"][pageData["path"]] = pageData["audits"];
           } catch (error) {
               console.error(`Failed to parse JSON in ${filename}: ${error}`);
           }
@@ -147,16 +186,26 @@ function calculateAverageScore(directory) {
   // Calculate average; avoid division by zero error
   if (count > 0) {
       const average = totalScore / count;
-      return average;
+      reportData["site_average"] = average;
+      reportData["report_datetime"] = getReportTimeFromDirectoryPath(directory);
+      return reportData;
   } else {
       console.log("No scores found.");
       return null;
   }
 }
 
+function presentReport(reportData)
+{
+
+}
+
+  
+
+// TODO include options to rerun report generation from existing fodler
 async function main() {
   const url = process.argv[2];
-  const reportsDir = "C:\\Users\\liam\\OneDrive\\Documents\\BritishLibrary\\src\\labswebtesting\\reports\\2024-07-24T10-34-20"; //getReportsDir();
+  const reportsDir = "C:\\Users\\liam\\OneDrive\\Documents\\BritishLibrary\\src\\labs-a11y-testing\\reports\\2024-07-24T10-34-20"; //getReportsDir();
   if (!url) {
     console.error('Please provide a URL as a parameter.');
     process.exit(1);
@@ -168,7 +217,10 @@ async function main() {
     // await runLighthouse(reportsDir, url);
   }
   
-  console.log(calculateAverageScore(reportsDir));
+  // generate summary data
+  let report_data = generateReportData(url, reportsDir);
+  // output the report data to HTML
+  presentReport(reportData);
 
 }
 
