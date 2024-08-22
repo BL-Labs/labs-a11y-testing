@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <title>Accessibility report for %siteName%</title>
+        <style>
+            body {
+                font-family: Verdana;
+                font-size: 13px;
+            }
+            th {
+                text-align: left;
+            }
+            .ifpt
+            {
+                background-color: lightgray;
+                padding: 5px;
+            }
+            .audit-item
+            {
+                border-style: solid;
+                border-width: 1px;
+                padding: 5px;
+            }
+           
+        </style>
+    </head>
+    <body>
+        <h1>Accessibility report for %siteName%</h1>
+        <table>
+            <tr>
+                <th>Average Score: </th>
+                <td>%site_average%</td>
+            </tr>
+            <tr>
+                <th>Date and time: </th>
+                <td>%report_datetime%</td>
+            </tr>
+        </table>
+        <h2>Page with potential issues and their scores</h2>
+        <table>
+            %page_scores%
+        </table>
+        <h2>Issues found</h2>
+        %page_audits%
+    </body>
+</html>

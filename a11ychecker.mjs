@@ -150,7 +150,6 @@ function isIncludableInReport(auditData)
 // TODO LIST OUT SCORES PER PAGE UNDER GENERAL SCORE
 
 function generateReportData(url, directory) {
-  console.log(directory);  
   let site_url = new URL(url);
 
   let reportData = {"page_scores": {}, "page_audits": {}};
@@ -167,7 +166,6 @@ function generateReportData(url, directory) {
 
   const files = fs.readdirSync(directory);
   for (const filename of files) {
-    console.log(filename);
       if (filename.endsWith(".json")) {
         
           try {
@@ -195,9 +193,72 @@ function generateReportData(url, directory) {
   }
 }
 
-function presentReport(reportData)
+function makeAnchorFromPageName(pageName)
 {
+  return pageName.replaceAll("/","");
+}
 
+function outputPageScores(pageScores)
+{
+  let html = "";
+  for (var page in pageScores)
+  {
+    // We only want to see pages needing work
+    if (pageScores[page] == 1)
+    {
+      continue;
+    }
+    html += "<tr><th><a href='#" + makeAnchorFromPageName(page) + "'>" + page + "</a></th><td>" + formatPercent(pageScores[page]) + "</td></tr>";
+
+  }
+  return html;
+}
+
+function outputPageAudits(pageAudits)
+{
+  let html = "";
+  for (var page in pageAudits)
+  {
+    if (Object.keys(pageAudits[page]).length == 0)
+    {
+      continue;
+    }
+    html += "<h3 class='ifpt'><a id='" + makeAnchorFromPageName(page) + "'>" + page + "</a></h3>";
+    for (var audit in pageAudits[page])
+    {
+      var item = pageAudits[page][audit];
+      html += "<div id='audit-" + item["id"] + "' class='audit-item'>";
+      html += "<h4>" + item["title"] + "</h4>";
+      html += "<p>" + item["description"] + "</p>";
+      html += "</div>";
+    }
+
+  }
+
+  return html;
+}
+
+function formatPercent(number)
+{
+  return (number*100).toFixed(2) + "%";
+}
+
+function outputSummaryReport(reportsDir, reportData)
+{
+  let content = fs.readFileSync('report_template.html', 'utf8');
+  content = content.replaceAll("%siteName%", reportData["host"]);
+  content = content.replaceAll("%site_average%", formatPercent(reportData["site_average"]));
+  content = content.replaceAll("%report_datetime%", reportData["report_datetime"]);
+  content = content.replaceAll("%page_scores%", outputPageScores(reportData["page_scores"]));
+  content = content.replaceAll("%page_audits%", outputPageAudits(reportData["page_audits"]));  
+  
+  const reportFileName = path.join(reportsDir, "report.html")
+  try {
+      fs.writeFileSync(reportFileName, content, 'utf8');
+      console.log("File written successfully.");
+  } catch (err) {
+      console.error("Error writing to file:", err);
+  }
 }
 
   
@@ -218,9 +279,9 @@ async function main() {
   }
   
   // generate summary data
-  let report_data = generateReportData(url, reportsDir);
+  let reportData = generateReportData(url, reportsDir);
   // output the report data to HTML
-  presentReport(reportData);
+  outputSummaryReport(reportsDir, reportData);
 
 }
 
