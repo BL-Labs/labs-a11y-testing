@@ -214,6 +214,43 @@ function outputPageScores(pageScores)
   return html;
 }
 
+// turn markdown style links to HTML
+function linkify(text)
+{
+  const regex = /\[([^\]]+)\]\((https?:\/\/[^\s]+)\)/;
+  const match = text.match(regex);
+  if (!match)
+  {
+    return text;
+  }
+  const label = match[1];  // Text inside square brackets
+  const url = match[2];    // URL inside parentheses
+
+  // Constructing the HTML <a> tag
+  const htmlTag = "<a target='_blank' href='" + url + "'>" + label + "</a>";
+  return text.replace(match[0], htmlTag);
+}
+
+function escapeHTML(html) {
+  return html
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+}
+
+function outputAuditItem(fItem)
+{
+  let html = "<table class='f-item'>";
+  html += "<tr><th>Selector</th><td><pre>" + fItem["node"]["selector"] + "</pre></td></tr>";
+  html += "<tr><th>Snippet</th><td><code>" + escapeHTML(fItem["node"]["snippet"]) + "</code></td></tr>";
+  html += "<tr><th>Explanation</th><td>" + fItem["node"]["explanation"] + "</td></tr>";
+
+  html += "</table>";
+  return html;
+}
+
 function outputPageAudits(pageAudits)
 {
   let html = "";
@@ -229,7 +266,15 @@ function outputPageAudits(pageAudits)
       var item = pageAudits[page][audit];
       html += "<div id='audit-" + item["id"] + "' class='audit-item'>";
       html += "<h4>" + item["title"] + "</h4>";
-      html += "<p>" + item["description"] + "</p>";
+      html += "<p>" + linkify(item["description"]) + "</p>";
+      if (item["details"])
+      {
+        html += "<h5>Nodes affected</h5>";
+        for (var f_item in item["details"]["items"])
+        {
+          html += outputAuditItem(item["details"]["items"][f_item]);
+        }
+      }
       html += "</div>";
     }
 
