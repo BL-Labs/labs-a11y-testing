@@ -1,3 +1,10 @@
+/*
+   Accesibility Checker for whole site - a11ychecker.mjs
+   Liam Green-Hughes
+   British Library
+   2024
+*/
+
 import puppeteer from 'puppeteer';
 import lighthouse from 'lighthouse';
 import { URL } from 'url';
@@ -8,18 +15,19 @@ import axios from 'axios';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
+// Converts a time stamp into a string suitable for use in a directory name
 function getDateBasedDirName(date) {
   const padZero = n => `${n}`.padStart(2, '0');
   return `${date.getFullYear()}-${padZero(date.getMonth() + 1)}-${padZero(date.getDate())}` +
          `T${padZero(date.getHours())}-${padZero(date.getMinutes())}-${padZero(date.getSeconds())}`;
 }
 
+// Gets the path to write the Lighthouse reports to, based on the current timestamp.
+// Creates directory if missing.
 function getReportsDir() {
   // Convert __dirname to work with ES modules
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = path.dirname(__filename);
-  // const parser = new xml2js.Parser();
-  // const parseString = promisify(parser.parseString);
   // Create reports directory if not exist
   const now = new Date();
   // Create the reports directory using a date-based naming convention
@@ -30,6 +38,7 @@ function getReportsDir() {
   }
   return reportsDir;
 }
+
 // This function takes a URL path and sanitizes it by replacing any special characters with underscores
 function sanitizeFilename(urlPath) {
   // Use a regular expression to match any special characters (e.g. /, ?, :, #, etc.) and replace them with an underscore
@@ -46,6 +55,11 @@ function sanitizeFilename(urlPath) {
  * @param {string} url - The URL to run Lighthouse on.
  */
 async function runLighthouse(reportsDir, url) {
+  if (url == null || url == "")
+  {
+    throw new Error("No URL supplied to run Lighthouse");
+  }
+  console.log("Running Lighthouse tests on: " + url);
   // Launch a new Puppeteer browser instance
   const browser = await puppeteer.launch({ headless: true });
   const page = await browser.newPage();
@@ -59,9 +73,7 @@ async function runLighthouse(reportsDir, url) {
       await page.click('#ccc-close'); // Adjust the selector as per your cookie consent button
     }
   } catch (e) {
-    console.log('No cookie consent banner found or failed to dismiss:');
-    console.log(url);
-    console.log("===");
+    console.log('  - No cookie consent banner found or failed to dismiss.');
   }
 
   // Get the Lighthouse report
@@ -85,38 +97,47 @@ async function runLighthouse(reportsDir, url) {
   await browser.close();
 }
 
-async function processSitemap(url) {
+// Works through the entries in a sitemap.xml file, testing any URLs it finds
+// Copes recursively with embedded sitemaps also.
+async function processSitemap(reportsDir, url) {
   const response = await axios.get(url);
+  
+  const parser = new xml2js.Parser();
+  const parseString = promisify(parser.parseString);
+
   const sitemap = await parseString(response.data);
 
   if (sitemap.urlset) {
     const urls = sitemap.urlset.url.map(entry => entry.loc[0]);
     for (const url of urls) {
-      await runLighthouse(url);
+      await runLighthouse(reportsDir, url);
     }
   } else if (sitemap.sitemapindex) {
     const sitemaps = sitemap.sitemapindex.sitemap.map(entry => entry.loc[0]);
     for (const sitemapUrl of sitemaps) {
       if (sitemapUrl.includes('sitemap') && sitemapUrl.endsWith('.xml')) {
-        await processSitemap(sitemapUrl);
+        await processSitemap(reportsDir, sitemapUrl);
       }
     }
   }
 }
 
+// Converts a directory path back to a timestamp
 function getReportTimeFromDirectoryPath(directory)
 { 
   let parts = path.basename(directory).split("T");
   return parts[0] + "T" + parts[1].replace("-", ":") + "Z";
 }
 
+// Reads in data from an individual Lighthouse JSON output file
 function extractPageData(data)
 {
   let pageData = {"score":0, "audits": {}};
   // Check if 'categories' and 'accessibility' exist
   let pageUrl = new URL(data.requestedUrl);
   pageData["path"] = pageUrl.pathname;
-  if ('categories' in data && 'accessibility' in data.categories) {
+  if ('categories' in data && 'accessibility' in data.categories) 
+  {
     const scoreElement = data.categories.accessibility;
                   
     // If 'score' exists, add it to the total and increment count
@@ -139,6 +160,7 @@ function extractPageData(data)
   return pageData;
 }
 
+// Determines if an audit should be included in the report
 function isIncludableInReport(auditData)
 {
   return (auditData.scoreDisplayMode != "notApplicable" 
@@ -147,9 +169,9 @@ function isIncludableInReport(auditData)
     && auditData.scoreDisplayMode != "manual");
 }
 
-// TODO LIST OUT SCORES PER PAGE UNDER GENERAL SCORE
-
-function generateReportData(url, directory) {
+// Produces data for entire report by combining information from each Lighthouse run
+function generateReportData(url, directory) 
+{
   let site_url = new URL(url);
 
   let reportData = {"page_scores": {}, "page_audits": {}};
@@ -193,11 +215,13 @@ function generateReportData(url, directory) {
   }
 }
 
+// Converts a pagename into a string suitable for use in an internal link
 function makeAnchorFromPageName(pageName)
 {
   return pageName.replaceAll("/","");
 }
 
+// Produces HTML for page-by-page scores for accessibility
 function outputPageScores(pageScores)
 {
   let html = "";
@@ -231,6 +255,7 @@ function linkify(text)
   return text.replace(match[0], htmlTag);
 }
 
+// Converts HTML so it can be shown without being interpreted by the browser
 function escapeHTML(html) {
   return html
       .replace(/&/g, "&amp;")
@@ -240,6 +265,7 @@ function escapeHTML(html) {
       .replace(/'/g, "&#039;");
 }
 
+// Outputs HTML for instamce of an audit warning
 function outputAuditItem(fItem)
 {
   let html = "<table class='f-item'>";
@@ -251,6 +277,7 @@ function outputAuditItem(fItem)
   return html;
 }
 
+// Creates HTML for page level audit items 
 function outputPageAudits(pageAudits)
 {
   let html = "";
@@ -283,11 +310,13 @@ function outputPageAudits(pageAudits)
   return html;
 }
 
+// formats a decimal as a percentage with two decimal places
 function formatPercent(number)
 {
   return (number*100).toFixed(2) + "%";
 }
 
+// Fills in templates (using report_templates.html) and writes report to disc
 function outputSummaryReport(reportsDir, reportData)
 {
   let content = fs.readFileSync('report_template.html', 'utf8');
@@ -297,37 +326,39 @@ function outputSummaryReport(reportsDir, reportData)
   content = content.replaceAll("%page_scores%", outputPageScores(reportData["page_scores"]));
   content = content.replaceAll("%page_audits%", outputPageAudits(reportData["page_audits"]));  
   
-  const reportFileName = path.join(reportsDir, "report.html")
+  const reportPath = path.join(reportsDir, "report.html")
   try {
-      fs.writeFileSync(reportFileName, content, 'utf8');
+      fs.writeFileSync(reportPath, content, 'utf8');
       console.log("File written successfully.");
   } catch (err) {
       console.error("Error writing to file:", err);
   }
+  return reportPath;
 }
 
   
 
-// TODO include options to rerun report generation from existing fodler
+// ** MAIN **
 async function main() {
   const url = process.argv[2];
-  const reportsDir = "C:\\Users\\liam\\OneDrive\\Documents\\BritishLibrary\\src\\labs-a11y-testing\\reports\\2024-07-24T10-34-20"; //getReportsDir();
+  const reportsDir = getReportsDir();
   if (!url) {
     console.error('Please provide a URL as a parameter.');
     process.exit(1);
   }
 
   if (url.endsWith('.xml')) {
-    // await processSitemap(url);
+    await processSitemap(reportsDir, url);
   } else {
-    // await runLighthouse(reportsDir, url);
+    await runLighthouse(reportsDir, url);
   }
   
   // generate summary data
   let reportData = generateReportData(url, reportsDir);
   // output the report data to HTML
-  outputSummaryReport(reportsDir, reportData);
-
+  console.log("Generating report...");
+  let reportPath = outputSummaryReport(reportsDir, reportData);
+  console.log("Finished. Report available at: " + reportPath);
 }
 
 main().catch(err => {
