@@ -4,7 +4,7 @@
    British Library
    2024
 */
-
+import * as chromeLauncher from 'chrome-launcher';
 import puppeteer from 'puppeteer';
 import lighthouse from 'lighthouse';
 import { URL } from 'url';
@@ -45,6 +45,7 @@ function sanitizeFilename(urlPath) {
   return urlPath.replace(/[\/:?#\[\]@!$&'()*+,;=]/g, '_');
 }
 
+
 /**
  * Run Lighthouse on a given URL.
  *
@@ -54,52 +55,84 @@ function sanitizeFilename(urlPath) {
  *
  * @param {string} url - The URL to run Lighthouse on.
  */
-async function runLighthouse(reportsDir, url) {
+async function runLighthouse(reportsDir, url, chrome) {
   if (url == null || url == "")
   {
     throw new Error("No URL supplied to run Lighthouse");
   }
   console.log("Running Lighthouse tests on: " + url);
   // Launch a new Puppeteer browser instance
-  const browser = await puppeteer.launch({ headless: true });
-  const page = await browser.newPage();
+  let browser = await puppeteer.launch({ headless: true });
+  let page = await browser.newPage();
   await page.goto(url);
 
   // Handle cookie consent (modify the selector based on your site's cookie consent button)
   try {
-    if (!url.endsWith(".xml"))
+    if (!url.endsWith(".xml") && !! await page.$('#ccc-recommended-settings'))
     {
       // Click the cookie consent button
-      await page.click('#ccc-close'); // Adjust the selector as per your cookie consent button
+      console.log("Trying to click cookie consent");
+      //await page.click('#ccc-recommended-settings'); // Adjust the selector as per your cookie consent button
+      await page.$eval(
+        '#ccc-recommended-settings',
+        (el) => {
+          el.click()
+        }
+      );
+      if (!! await page.$('#ccc-recommended-settings'))
+      {
+        console.log("ERROR: Cookie banner not dismissed");
+      }
+      else 
+      {
+        console.log("Cookie banner dismissed");
+      }
+      
     }
   } catch (e) {
+    console.log(e);
     console.log('  - No cookie consent banner found or failed to dismiss.');
   }
 
   // Get the Lighthouse report
-  const port = new URL(browser.wsEndpoint()).port;
-  const result = await lighthouse(url, {
-    port,
+  //let port = new URL(browser.wsEndpoint()).port;
+
+
+  console.log("Starting Lighthouse tests...");
+  await lighthouse(url, {
+    port: chrome.port,
     onlyCategories: ['accessibility'],
     output: 'json',
-  });
+    logLevel: 'debug'
+  }).then(result => {
+    console.log("Finished Lighthouse tests.");
+    // Get the report JSON
+    let reportJson = result.report;
+    let urlObj = new URL(url);
+    let sanitizedPath = sanitizeFilename(urlObj.pathname);
+    let reportPath = path.join(reportsDir, `${sanitizedPath}.json`);
+    
+    // Save the report to a file
+    fs.writeFileSync(reportPath, reportJson);
 
-  // Get the report JSON
-  const reportJson = result.report;
-  const urlObj = new URL(url);
-  const sanitizedPath = sanitizeFilename(urlObj.pathname);
-  const reportPath = path.join(reportsDir, `${sanitizedPath}.json`);
+    console.log("Closing browser session");
+ 
+   browser.close();
+ 
+   console.log("Finished Lighthouse tests on: " + url);
+  }).catch(error => { 
+    console.log('ERROR:', error.message); 
+    browser.close();
+  });
   
-  // Save the report to a file
-  fs.writeFileSync(reportPath, reportJson);
 
   // Close the browser instance
-  await browser.close();
+
 }
 
 // Works through the entries in a sitemap.xml file, testing any URLs it finds
 // Copes recursively with embedded sitemaps also.
-async function processSitemap(reportsDir, url) {
+async function processSitemap(reportsDir, url, chrome) {
   const response = await axios.get(url);
   
   const parser = new xml2js.Parser();
@@ -110,13 +143,14 @@ async function processSitemap(reportsDir, url) {
   if (sitemap.urlset) {
     const urls = sitemap.urlset.url.map(entry => entry.loc[0]);
     for (const url of urls) {
-      await runLighthouse(reportsDir, url);
+      console.log(url);
+      await runLighthouse(reportsDir, url, chrome);
     }
   } else if (sitemap.sitemapindex) {
     const sitemaps = sitemap.sitemapindex.sitemap.map(entry => entry.loc[0]);
     for (const sitemapUrl of sitemaps) {
       if (sitemapUrl.includes('sitemap') && sitemapUrl.endsWith('.xml')) {
-        await processSitemap(reportsDir, sitemapUrl);
+        await processSitemap(reportsDir, sitemapUrl, chrome);
       }
     }
   }
@@ -347,12 +381,17 @@ async function main() {
     process.exit(1);
   }
 
-  if (url.endsWith('.xml')) {
-    await processSitemap(reportsDir, url);
-  } else {
-    await runLighthouse(reportsDir, url);
-  }
   
+const chrome = await chromeLauncher.launch({
+  chromeFlags: [ '--headless', ],
+  },);
+
+  if (url.endsWith('.xml')) {
+    await processSitemap(reportsDir, url, chrome);
+  } else {
+    await runLighthouse(reportsDir, url, chrome);
+  }
+  chromeLauncher.killAll();
   // generate summary data
   let reportData = generateReportData(url, reportsDir);
   // output the report data to HTML
